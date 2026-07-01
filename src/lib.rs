@@ -150,6 +150,7 @@ mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
+mod backend;
 pub mod data_reader;
 mod discovery;
 mod errors;
@@ -157,6 +158,7 @@ mod read_loop;
 mod retry;
 mod stream;
 mod utils;
+pub use backend::{AudioSectorReader, TrackReadError, read_track};
 pub use data_reader::SectorReadMode;
 pub use discovery::DriveInfo;
 pub use errors::{CdReaderError, ScsiError, ScsiOp};
@@ -164,6 +166,8 @@ pub use retry::RetryConfig;
 pub use stream::{TrackStream, TrackStreamConfig};
 
 mod parse_toc;
+pub use parse_toc::lba_to_msf;
+pub use utils::get_track_bounds;
 
 #[cfg(target_os = "windows")]
 mod windows_read_track;
@@ -197,6 +201,18 @@ pub struct Toc {
     /// Lead-out LBA reported by the drive for the disc TOC. You'll also need this
     /// in order to calculate MusicBrainz ID.
     pub leadout_lba: u32,
+}
+
+/// Wrap raw CD-DA PCM in a 44-byte WAV/RIFF header (44100 Hz, 2 channels,
+/// 16-bit) so the bytes become a playable file.
+///
+/// This is the free-function form of [`CdReader::create_wav`], usable without
+/// naming the physical-drive type — for example on PCM obtained from a file or
+/// image backing via [`read_track`].
+pub fn create_wav(data: Vec<u8>) -> Vec<u8> {
+    let mut header = utils::create_wav_header(data.len() as u32);
+    header.extend_from_slice(&data);
+    header
 }
 
 /// Helper struct to interact with the audio CD. While it doesn't hold any internal data
@@ -256,9 +272,7 @@ impl CdReader {
     ///
     /// * `data` - vector of bytes received from `read_track` function
     pub fn create_wav(data: Vec<u8>) -> Vec<u8> {
-        let mut header = utils::create_wav_header(data.len() as u32);
-        header.extend_from_slice(&data);
-        header
+        crate::create_wav(data)
     }
 
     /// Read Table of Contents for the opened drive. You'll likely only need to access

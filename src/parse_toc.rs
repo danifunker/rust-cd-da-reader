@@ -66,7 +66,12 @@ pub fn parse_toc(data: Vec<u8>) -> std::io::Result<Toc> {
     }
 }
 
-fn lba_to_msf(lba: u32) -> (u8, u8, u8) {
+/// Convert a Logical Block Address to a `(minute, second, frame)` MSF address.
+///
+/// MSF addresses carry a fixed 2-second (150-frame) lead-in offset, so `LBA 0`
+/// maps to `(0, 2, 0)`. Useful when building a [`Toc`](crate::Toc) for a
+/// file/image backing from cumulative track frame counts.
+pub fn lba_to_msf(lba: u32) -> (u8, u8, u8) {
     let total_frames = lba + 150; // MSF addresses are offset by 150
     let minutes = (total_frames / 75 / 60) as u8;
     let seconds = ((total_frames / 75) % 60) as u8;

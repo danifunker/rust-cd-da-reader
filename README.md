@@ -136,6 +136,40 @@ std::fs::write("myfile.wav", wav)?;
 
 This code will read the first track from the CD file and save it as a WAVE file, which will be playable by any music player.
 
+## Reading from a file or image (custom backings)
+
+The library isn't limited to physical drives. Everything above the raw sector read — the `Track`/`Toc` types, the track-bounds math (including the CD-Extra gap rule), and the WAV helper — is hardware-independent, so any source that can produce raw CD-DA sectors can reuse it. This crate deliberately does **not** bundle any image format (CHD, BIN/CUE, ...); instead you implement one trait and plug your own decoder in. That keeps the default build dependency-free and lets a consumer that already links a CHD/BIN decoder reuse it rather than pulling in a second copy.
+
+Implement `AudioSectorReader` for your backing. It must return raw sectors in the exact CD-DA format the physical reader produces: 2352 bytes/sector, 16-bit signed little-endian, stereo.
+
+```rust
+use cd_da_reader::{AudioSectorReader, Toc, Track, create_wav, lba_to_msf, read_track};
+
+struct MyImage { /* an opened CHD/BIN/... */ }
+
+impl AudioSectorReader for MyImage {
+    type Error = std::io::Error;
+
+    fn read_audio_sectors(&self, start_lba: u32, count: u32) -> Result<Vec<u8>, Self::Error> {
+        // decode `count` sectors starting at `start_lba` into
+        // little-endian PCM (`count * 2352` bytes) and return them
+        # unimplemented!()
+    }
+}
+```
+
+Build a `Toc` from your image's own track metadata (cumulative frame offsets give each track's `start_lba`; `lba_to_msf` fills `start_msf`), then read tracks through the same pipeline as the physical drive:
+
+```rust
+use cd_da_reader::{create_wav, read_track};
+
+let pcm = read_track(&image, &toc, 1)?; // same LE, 2352-B/sector PCM
+let wav = create_wav(pcm);              // free fn; also CdReader::create_wav
+std::fs::write("track01.wav", wav)?;
+```
+
+`CdReader` itself implements `AudioSectorReader`, so drive-backed and file-backed code can share the generic `read_track` path. See `examples/file_backend.rs` for a complete, dependency-free example.
+
 ## What about metadata?
 
 You might have asked why do we expose LBA/MSF values if the track reading is abstracted behind specific track numbers. The reason for that is metadata. Even though there is a command [CD-TEXT](https://en.wikipedia.org/wiki/CD-Text) for storing data directly, it is not exposed in this library due to it being extremely unreliable.
